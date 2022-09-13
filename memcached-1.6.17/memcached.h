@@ -297,7 +297,9 @@ enum delta_result_type {
     X(cas_hits) \
     X(cas_badval) \
     X(incr_hits) \
-    X(decr_hits)
+    X(decr_hits) \
+    X(mult_hits) \
+    X(div_hits)
 
 /** Stats stored per slab (and per thread). */
 struct slab_stats {
@@ -316,6 +318,8 @@ struct slab_stats {
     X(delete_misses) \
     X(incr_misses) \
     X(decr_misses) \
+    X(mult_misses) \
+    X(div_misses) \
     X(cas_misses) \
     X(meta_cmds) \
     X(bytes_read) \
