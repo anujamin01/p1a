@@ -96,6 +96,8 @@
     X(CMD_GATS) \
     X(CMD_INCR) \
     X(CMD_DECR) \
+    X(CMD_MULT) \
+    X(CMD_DIV) \
     X(CMD_TOUCH) \
     X(CMD_APPEND) \
     X(CMD_DELETE) \
