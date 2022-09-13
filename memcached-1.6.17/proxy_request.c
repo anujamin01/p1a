@@ -387,7 +387,7 @@ int process_request(mcp_parser_t *pr, const char *command, size_t cmdlen) {
                 ret = _process_request_simple(pr, 4);
             }  else if (strncmp(cm, "div", 3) == 0) {
                 cmd = CMD_DIV;
-                ret = _process_request_simple(pr, 4);
+                ret = _process_request_simple(pr, 3);
             } else if (strncmp(cm, "gats", 4) == 0) {
                 cmd = CMD_GATS;
                 type = CMD_TYPE_GET;
