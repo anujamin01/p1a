@@ -1697,6 +1697,7 @@ static void process_marithmetic_command(conn *c, token_t *tokens, const size_t n
     of.delta = 1;
     of.initial = 0; // redundant, for clarity.
     bool incr = true; // default mode is to increment.
+    bool mult = true; // default set to multiply
     bool locked = false;
     uint32_t hv = 0;
     item *it = NULL; // item returned by do_add_delta.
@@ -1737,6 +1738,14 @@ static void process_marithmetic_command(conn *c, token_t *tokens, const size_t n
         case 'D': // Decr.
         case '-':
             incr = false;
+            break;
+        case 'M': // Mult.
+        case '*':
+            mult = true;
+            break;
+        case 'Q': // divide ie quotient.
+        case '/':
+            mult = false;
             break;
         default:
             errstr = "CLIENT_ERROR invalid mode for ma M token";
@@ -1797,6 +1806,64 @@ static void process_marithmetic_command(conn *c, token_t *tokens, const size_t n
                 c->thread->stats.incr_misses++;
             } else {
                 c->thread->stats.decr_misses++;
+            }
+            pthread_mutex_unlock(&c->thread->stats.mutex);
+            // won't have a valid it here.
+            memcpy(p, "NF ", 3);
+            p += 3;
+        }
+        break;
+    case DELTA_ITEM_CAS_MISMATCH:
+        // also returns without a valid it.
+        memcpy(p, "EX ", 3);
+        p += 3;
+        break;
+    }
+
+
+    switch(do_mult_delta(c, key, nkey, mult, of.delta, tmpbuf, &of.req_cas_id, hv, &it)) {
+    case OK:
+        if (c->noreply)
+            resp->skip = true;
+        if (settings.meta_response_old) {
+            memcpy(resp->wbuf, "OK ", 3);
+        } else {
+            memcpy(resp->wbuf, "HD ", 3);
+        }
+        break;
+    case NON_NUMERIC:
+        errstr = "CLIENT_ERROR cannot multiply or divide non-numeric value";
+        goto error;
+        break;
+    case EOM:
+        errstr = "SERVER_ERROR out of memory";
+        goto error;
+        break;
+    case DELTA_ITEM_NOT_FOUND:
+        if (of.vivify) {
+            itoa_u64(of.initial, tmpbuf);
+            int vlen = strlen(tmpbuf);
+
+            it = item_alloc(key, nkey, 0, 0, vlen+2);
+            if (it != NULL) {
+                memcpy(ITEM_data(it), tmpbuf, vlen);
+                memcpy(ITEM_data(it) + vlen, "\r\n", 2);
+                if (do_store_item(it, NREAD_ADD, c, hv)) {
+                    item_created = true;
+                } else {
+                    // Not sure how we can get here if we're holding the lock.
+                    memcpy(resp->wbuf, "NS ", 3);
+                }
+            } else {
+                errstr = "SERVER_ERROR Out of memory allocating new item";
+                goto error;
+            }
+        } else {
+            pthread_mutex_lock(&c->thread->stats.mutex);
+            if (mult) {
+                c->thread->stats.mult_misses++;
+            } else {
+                c->thread->stats.div_misses++;
             }
             pthread_mutex_unlock(&c->thread->stats.mutex);
             // won't have a valid it here.
@@ -2058,6 +2125,55 @@ static void process_touch_command(conn *c, token_t *tokens, const size_t ntokens
         pthread_mutex_unlock(&c->thread->stats.mutex);
 
         out_string(c, "NOT_FOUND");
+    }
+}
+
+static void process_multiply_command(conn *c, token_t *tokens, const size_t ntokens, const bool mult) {
+    char temp[INCR_MAX_STORAGE_LEN];
+    uint64_t delta;
+    char *key;
+    size_t nkey;
+
+    assert(c != NULL);
+
+    set_noreply_maybe(c, tokens, ntokens);
+
+    if (tokens[KEY_TOKEN].length > KEY_MAX_LENGTH) {
+        out_string(c, "CLIENT_ERROR bad command line format");
+        return;
+    }
+
+    key = tokens[KEY_TOKEN].value;
+    nkey = tokens[KEY_TOKEN].length;
+
+    if (!safe_strtoull(tokens[2].value, &delta)) {
+        out_string(c, "CLIENT_ERROR invalid numeric delta argument");
+        return;
+    }
+
+    switch(mult_delta(c, key, nkey, mult, delta, temp, NULL)) {
+    case OK:
+        out_string(c, temp);
+        break;
+    case NON_NUMERIC:
+        out_string(c, "CLIENT_ERROR cannot multiply or divide non-numeric value");
+        break;
+    case EOM:
+        out_of_memory(c, "SERVER_ERROR out of memory");
+        break;
+    case DELTA_ITEM_NOT_FOUND:
+        pthread_mutex_lock(&c->thread->stats.mutex);
+        if (mult) {
+            c->thread->stats.mult_misses++;
+        } else {
+            c->thread->stats.div_misses++;
+        }
+        pthread_mutex_unlock(&c->thread->stats.mutex);
+
+        out_string(c, "NOT_FOUND");
+        break;
+    case DELTA_ITEM_CAS_MISMATCH:
+        break; /* Should never get here */
     }
 }
 
@@ -2791,6 +2907,11 @@ void process_command_ascii(conn *c, char *command) {
         } else {
             out_string(c, "ERROR");
         }
+    } else if (first == 'm') {
+        if (strcmp(tokens[COMMAND_TOKEN].value, "mult") == 0) {
+
+            WANT_TOKENS_OR(ntokens, 4, 5);
+            process_multiply_command(c, tokens, ntokens, 1);
     } else if (first == 's') {
         if (strcmp(tokens[COMMAND_TOKEN].value, "set") == 0 && (comm = NREAD_SET)) {
 
@@ -2842,6 +2963,10 @@ void process_command_ascii(conn *c, char *command) {
 
             WANT_TOKENS(ntokens, 3, 5);
             process_delete_command(c, tokens, ntokens);
+        } else if (strcmp(tokens[COMMAND_TOKEN].value, "div") == 0) {
+
+            WANT_TOKENS_OR(ntokens, 4, 5);
+            process_multiply_command(c, tokens, ntokens, 0);
         } else if (strcmp(tokens[COMMAND_TOKEN].value, "decr") == 0) {
 
             WANT_TOKENS_OR(ntokens, 4, 5);
