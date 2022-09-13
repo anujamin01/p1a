@@ -2912,6 +2912,7 @@ void process_command_ascii(conn *c, char *command) {
 
             WANT_TOKENS_OR(ntokens, 4, 5);
             process_multiply_command(c, tokens, ntokens, 1);
+        }
     } else if (first == 's') {
         if (strcmp(tokens[COMMAND_TOKEN].value, "set") == 0 && (comm = NREAD_SET)) {
 
