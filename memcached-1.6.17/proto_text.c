@@ -1832,7 +1832,7 @@ static void process_marithmetic_command(conn *c, token_t *tokens, const size_t n
         }
         break;
     case NON_NUMERIC:
-        errstr = "CLIENT_ERROR cannot multiply or divide non-numeric value";
+        errstr = "CLIENT_ERROR cannot multiply or divide non-numeric/0 value";
         goto error;
         break;
     case EOM:
@@ -2156,7 +2156,7 @@ static void process_multiply_command(conn *c, token_t *tokens, const size_t ntok
         out_string(c, temp);
         break;
     case NON_NUMERIC:
-        out_string(c, "CLIENT_ERROR cannot multiply or divide non-numeric value");
+        out_string(c, "CLIENT_ERROR cannot multiply or divide non-numeric/0 value");
         break;
     case EOM:
         out_of_memory(c, "SERVER_ERROR out of memory");
